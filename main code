@@ -1,0 +1,114 @@
+# app.rb (Single file combining Ruby on Rails backend and GraphQL)
+require 'json'
+require 'graphql'
+require 'faker'
+require 'sinatra'
+require 'sinatra/json'
+
+# Mock database of quotes (in a real-world scenario, this would be replaced by a database)
+QUOTES = 10.times.map { { text: Faker::Quote.famous_last_words, author: Faker::Book.author } }
+
+# GraphQL schema definition
+class QuoteType < GraphQL::Schema::Object
+  field :text, String, null: false
+  field :author, String, null: false
+end
+
+class QueryType < GraphQL::Schema::Object
+  field :random_quote, QuoteType, null: true
+
+  def random_quote
+    QUOTES.sample
+  end
+end
+
+class Schema < GraphQL::Schema
+  query QueryType
+end
+
+# Endpoint to handle GraphQL queries
+post '/graphql' do
+  result = Schema.execute(params[:query])
+  json result.to_h
+end
+
+# React frontend
+html_content = <<~HTML
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <title>Random Quote Generator</title>
+    </head>
+    <body>
+      <div id="root"></div>
+      <script src="https://cdn.jsdelivr.net/npm/react@17.0.2/umd/react.production.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/react-dom@17.0.2/umd/react-dom.production.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/@apollo/client@3.5.6/lib/bundle.umd.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/graphql@15.5.1/graphql.min.js"></script>
+      <script type="module">
+        const { useState, useEffect } = React;
+        const { ApolloClient, InMemoryCache, gql, ApolloProvider } = Apollo;
+
+        const client = new ApolloClient({
+          uri: '/graphql',
+          cache: new InMemoryCache(),
+        });
+
+        const App = () => {
+          const [quote, setQuote] = useState(null);
+
+          useEffect(() => {
+            fetchRandomQuote();
+          }, []);
+
+          const fetchRandomQuote = async () => {
+            try {
+              const { data } = await client.query({
+                query: gql`
+                  query {
+                    random_quote {
+                      text
+                      author
+                    }
+                  }
+                `,
+              });
+
+              setQuote(data.random_quote);
+            } catch (error) {
+              console.error('Error fetching quote:', error);
+            }
+          };
+
+          return (
+            <div>
+              <h1>Random Quote Generator</h1>
+              {quote ? (
+                <blockquote>
+                  <p>{quote.text}</p>
+                  <footer>- {quote.author}</footer>
+                </blockquote>
+              ) : (
+                <p>Loading...</p>
+              )}
+            </div>
+          );
+        };
+
+        ReactDOM.render(
+          <ApolloProvider client={client}>
+            <App />
+          </ApolloProvider>,
+          document.getElementById('root')
+        );
+      </script>
+    </body>
+  </html>
+HTML
+
+get '/' do
+  html_content
+end
+
+# Start the server
+run Sinatra::Application
