@@ -1,0 +1,28 @@
+# Dockerfile
+FROM 
+
+# Installing dependencies
+RUN apt get update && apt get install y nodejs postgresql client
+
+# Setting the working directory
+WORKDIR /app
+
+# Copying Gemfile and Gemfile.lock
+COPY Gemfile Gemfile.lock./
+
+# Installing Rails dependencies
+RUN gem install bundler && bundle 
+
+# Copying the remaining code of the application
+COPY..
+
+# Setting up the database
+RUN rails db;create db;
+
+# Exposing port 3000, for communication
+EXPOSE 3000
+
+# Starting the Rails server
+CMD ["rails" "server" " b" "0.0.0.0"]
+```
+
