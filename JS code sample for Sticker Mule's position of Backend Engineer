@@ -1,0 +1,109 @@
+const express = require('express');
+const { graphqlHTTP } = require('express-graphql');
+const { buildSchema } = require('graphql');
+const { Pool } = require('pg');
+const redis = require('redis');
+
+const app = express();
+const port = 3000;
+
+// PostgreSQL Configuration
+const pgPool = new Pool({
+  user: 'your_postgres_username',
+  host: 'localhost',
+  database: 'blog_app',
+  password: 'your_postgres_password',
+  port: 5432,
+});
+
+// Redis Configuration
+const redisClient = redis.createClient();
+
+// Sample data for demonstration
+const postsData = [
+  { id: 1, title: 'First Post', content: 'This is the first blog post.' },
+  { id: 2, title: 'Second Post', content: 'This is the second blog post.' },
+];
+
+// GraphQL Schema
+const schema = buildSchema(`
+  type Post {
+    id: ID!
+    title: String!
+    content: String!
+  }
+
+  type Query {
+    getPost(id: ID!): Post
+  }
+`);
+
+// GraphQL Resolvers
+const root = {
+  getPost: async ({ id }) => {
+    // First, check if the post exists in Redis cache
+    const cachedPost = await getFromCache(id);
+    if (cachedPost) {
+      return cachedPost;
+    }
+
+    // If the post is not cached, fetch it from the database
+    const post = await getFromDatabase(id);
+
+    // Cache the post in Redis for future queries
+    cachePost(id, post);
+
+    return post;
+  },
+};
+
+// Helper function to get a post from Redis cache
+function getFromCache(id) {
+  return new Promise((resolve) => {
+    redisClient.get(`post:${id}`, (err, reply) => {
+      if (err) {
+        console.error('Error while fetching from cache:', err);
+        resolve(null);
+      }
+      resolve(JSON.parse(reply));
+    });
+  });
+}
+
+// Helper function to cache a post in Redis
+function cachePost(id, post) {
+  redisClient.set(`post:${id}`, JSON.stringify(post));
+}
+
+// Helper function to get a post from the PostgreSQL database
+async function getFromDatabase(id) {
+  try {
+    const client = await pgPool.connect();
+    const result = await client.query('SELECT * FROM posts WHERE id = $1', [id]);
+    client.release();
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return result.rows[0];
+  } catch (err) {
+    console.error('Error while fetching from the database:', err);
+    return null;
+  }
+}
+
+// GraphQL Middleware
+app.use(
+  '/graphql',
+  graphqlHTTP({
+    schema: schema,
+    rootValue: root,
+    graphiql: true, // Enable GraphiQL for testing in the browser
+  })
+);
+
+// Start the server
+app.listen(port, () => {
+  console.log(`Server is running on http://localhost:${port}/graphql`);
+});
